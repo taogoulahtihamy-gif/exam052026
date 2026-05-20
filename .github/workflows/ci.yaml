@@ -1,4 +1,4 @@
-name: CI-CD Docker Pipeline
+name: CI-CD Docker Trivy Pipeline
 
 on:
   push:
@@ -7,85 +7,38 @@ on:
 
 env:
   IMAGE_NAME: ci-html
-  IMAGE_TAG: 1.0.1
+  IMAGE_TAG: latest
   DOCKER_REGISTRY: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
-
-  # ===============================
-  # JOB 1 - CI : BUILD + PUSH + SCAN
-  # ===============================
-  ci:
+  build-push-scan:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Display variables
-        run: |
-          echo "IMAGE_NAME: $IMAGE_NAME"
-          echo "IMAGE_TAG: $IMAGE_TAG"
-          echo "DOCKER_REGISTRY: $DOCKER_REGISTRY"
-
-      - name: Login to Docker Hub
-        run: |
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
-          docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
       - name: Build Docker image
-        run: |
-          docker build -t $DOCKER_REGISTRY/$IMAGE_NAME:$IMAGE_TAG .
+        run: docker build -t $DOCKER_REGISTRY/$IMAGE_NAME:$IMAGE_TAG .
 
-      - name: Verify image
-        run: |
-          docker image ls | grep $IMAGE_NAME
+      - name: Login Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
       - name: Push Docker image
+        run: docker push $DOCKER_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
+
+      - name: Install Trivy
         run: |
-          docker push $DOCKER_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
-#job scan with trivy
-  scan:
-    needs: ci
-    runs-on: ubuntu-latest    
-    steps:
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.35.0
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.61.0_Linux-64bit.deb
+          sudo dpkg -i trivy_0.61.0_Linux-64bit.deb
+
+      - name: Scan image
+        run: trivy image $DOCKER_REGISTRY/$IMAGE_NAME:$IMAGE_TAG | tee trivy-report.txt
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
         with:
-          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/ci-html-demo:latest
-          format: table
-          severity: CRITICAL,HIGH
-          exit-code: 1
-          vuln-type: os,library
-          ignore-unfixed: true
-
-  # ===============================
-  # JOB 2 - CD : DEPLOY
-  # ===============================
-  deploy:
-    needs: scan
-    runs-on: runner-lab
-
-    steps:
-      - name: Pull latest image
-        run: |
-          echo "Hello deploy"
-
-      - name: Pull latest image
-        run: |
-          docker pull $DOCKER_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
-
-      - name: Stop existing container
-        run: |
-          docker stop ci-app || true
-
-      - name: Remove old container
-        run: |
-          docker rm ci-app || true
-
-      - name: Run new container
-        run: |
-          docker run -d \
-            -p 80:80 \
-            --name ci-app \
-            $DOCKER_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
+          name: trivy-report
+          path: trivy-report.txt
