@@ -27,19 +27,15 @@ jobs:
       - name: Push Docker image
         run: docker push $DOCKER_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
 
-      - name: Install Trivy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/ci-html:latest
+          format: table
+          output: trivy-report.txt
+          exit-code: 0
 
-      - name: Scan image
-        run: trivy image $DOCKER_REGISTRY/$IMAGE_NAME:$IMAGE_TAG | tee trivy-report.txt
-
-      - name: Upload report
+      - name: Upload Trivy report
         uses: actions/upload-artifact@v4
         with:
           name: trivy-report
